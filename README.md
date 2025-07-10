@@ -131,18 +131,6 @@ nba-shot-visualizer/
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- NBA Stats API for providing comprehensive basketball data
-- Streamlit team for the excellent web framework
-- Basketball analytics community for inspiration
-
-## 🐛 Troubleshooting
-
 ### Common Issues
 
 **"Could not find player" error**:

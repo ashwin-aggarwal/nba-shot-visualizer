@@ -3,266 +3,357 @@ import requests
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Circle, Rectangle, Arc
+import matplotlib.patches as patches
+from matplotlib.patches import Arc
+import os
 
-# Replace with your API key
-API_KEY = "1915c6c481mshaa390fe9db9d4dfp1d942ejsnee7efcefdb82"
+# Set page configuration
+st.set_page_config(
+    page_title="NBA Shot Visualizer",
+    page_icon="🏀",
+    layout="wide"
+)
 
-st.set_page_config(page_title="NBA Shot Visualizer", layout="wide")
-st.title("NBA Shot Visualizer")
+# API Configuration
+API_KEY = os.getenv("API_KEY", "YOUR_API_KEY_HERE")
+BASE_URL = "https://stats.nba.com/stats"
 
-# Function to draw basketball court
-def draw_court(ax=None, color='black', lw=2, outer_lines=False):
-    if ax is None:
-        ax = plt.gca()
-
-    # Create the basketball hoop
-    hoop = Circle((0, 0), radius=7.5, linewidth=lw, color=color, fill=False)
-
-    # Create backboard
-    backboard = Rectangle((-30, -7.5), 60, 0, linewidth=lw, color=color)
-
-    # The paint
-    # Create the outer box 0f the paint, width=16ft, height=19ft
-    outer_box = Rectangle((-80, -47.5), 160, 190, linewidth=lw, color=color, fill=False)
-    # Create the inner box of the paint, width=12ft, height=19ft
-    inner_box = Rectangle((-60, -47.5), 120, 190, linewidth=lw, color=color, fill=False)
-
-    # Create free throw top arc
-    top_free_throw = Arc((0, 142.5), 120, 120, theta1=0, theta2=180, linewidth=lw, color=color, fill=False)
-    # Create free throw bottom arc
-    bottom_free_throw = Arc((0, 142.5), 120, 120, theta1=180, theta2=0, linewidth=lw, color=color, linestyle='dashed')
-    # Restricted Zone, it is an arc with 4ft radius from center of the hoop
-    restricted = Arc((0, 0), 80, 80, theta1=0, theta2=180, linewidth=lw, color=color)
-
-    # Three point line
-    # Create the side 3pt lines, they are 14ft long before they begin to arc
-    corner_three_a = Rectangle((-220, -47.5), 0, 140, linewidth=lw, color=color)
-    corner_three_b = Rectangle((220, -47.5), 0, 140, linewidth=lw, color=color)
-    # 3pt arc - center of arc will be the hoop, arc is 23'9" away from hoop
-    three_arc = Arc((0, 0), 475, 475, theta1=22, theta2=158, linewidth=lw, color=color)
-
-    # Center Court
-    center_outer_arc = Arc((0, 422.5), 120, 120, theta1=180, theta2=0, linewidth=lw, color=color)
-    center_inner_arc = Arc((0, 422.5), 40, 40, theta1=180, theta2=0, linewidth=lw, color=color)
-
-    # List of the court elements to be plotted onto the axes
-    court_elements = [hoop, backboard, outer_box, inner_box, top_free_throw,
-                      bottom_free_throw, restricted, corner_three_a,
-                      corner_three_b, three_arc, center_outer_arc,
-                      center_inner_arc]
-
-    if outer_lines:
-        # Draw the half court line, baseline and side out bounds lines
-        outer_lines = Rectangle((-250, -47.5), 500, 470, linewidth=lw, color=color, fill=False)
-        court_elements.append(outer_lines)
-
-    # Add the court elements onto the axes
-    for element in court_elements:
-        ax.add_patch(element)
-
-    return ax
-
-# Function to fetch player shots
-def fetch_player_shots(player_name, season):
-    # First, get the player ID
-    url = "https://api-nba-v1.p.rapidapi.com/players"
-    querystring = {"search": player_name}
+def get_player_id(player_name):
+    """Get player ID from NBA API"""
+    url = f"{BASE_URL}/commonallplayers"
     headers = {
-        "X-RapidAPI-Key": API_KEY,
-        "X-RapidAPI-Host": "api-nba-v1.p.rapidapi.com"
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://stats.nba.com/',
+        'x-nba-stats-origin': 'stats',
+        'x-nba-stats-token': 'true'
     }
     
-    response = requests.get(url, headers=headers, params=querystring)
-    if response.status_code != 200:
-        st.error(f"Error fetching player data: {response.status_code}")
+    params = {
+        'IsOnlyCurrentSeason': '0',
+        'LeagueID': '00',
+        'Season': '2024-25'
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        players = data['resultSets'][0]['rowSet']
+        for player in players:
+            if player_name.lower() in player[2].lower():
+                return player[0]
         return None
-    
-    data = response.json()
-    if not data.get('results', 0) or not data.get('response', []):
-        st.error(f"No player found with name: {player_name}")
+    except Exception as e:
+        st.error(f"Error fetching player ID for {player_name}: {str(e)}")
         return None
-    
-    player_id = data['response'][0]['id']
-    
-    # Now fetch the shots data
-    url = "https://api-nba-v1.p.rapidapi.com/players/statistics"
-    querystring = {"id": player_id, "season": season}
-    
-    response = requests.get(url, headers=headers, params=querystring)
-    if response.status_code != 200:
-        st.error(f"Error fetching shot data: {response.status_code}")
-        return None
-    
-    data = response.json()
-    
-    # Process the data into a DataFrame
-    # Note: This is a simplified version as the actual API response structure may vary
-    shots = []
-    for game in data.get('response', []):
-        # Extract shot data from each game
-        # This is a placeholder - you'll need to adapt this to the actual API response structure
-        if 'fgm' in game and 'fga' in game:
-            for _ in range(game['fga']):
-                made = _ < game['fgm']
-                # Generate random court positions for demonstration
-                # In a real app, you'd use actual shot location data
-                x = np.random.uniform(-250, 250)
-                y = np.random.uniform(-47.5, 422.5)
-                distance = np.sqrt(x**2 + y**2)
-                shot_type = '3PT Field Goal' if distance > 237.5 else '2PT Field Goal'
-                shots.append({
-                    'locX': x,
-                    'locY': y,
-                    'shot_made_flag': 1 if made else 0,
-                    'shot_distance': distance,
-                    'shot_type': shot_type
-                })
-    
-    if not shots:
-        st.warning(f"No shot data available for {player_name} in {season} season")
-        return None
-    
-    return pd.DataFrame(shots)
 
-# Function to plot scatter
-def plot_scatter(df, ax, title):
-    if df is None or df.empty:
-        ax.text(0, 0, "No data available", ha='center', va='center', fontsize=12)
-        return
+def get_shot_data(player_id, season):
+    """Fetch shot data for a player from NBA API"""
+    url = f"{BASE_URL}/shotchartdetail"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://stats.nba.com/',
+        'x-nba-stats-origin': 'stats',
+        'x-nba-stats-token': 'true'
+    }
     
-    # Draw the court
-    draw_court(ax, color='black', lw=1)
+    params = {
+        'PlayerID': player_id,
+        'Season': season,
+        'SeasonType': 'Regular Season',
+        'TeamID': '0',
+        'GameID': '',
+        'Outcome': '',
+        'Location': '',
+        'Month': '0',
+        'SeasonSegment': '',
+        'DateFrom': '',
+        'DateTo': '',
+        'OpponentTeamID': '0',
+        'VsConference': '',
+        'VsDivision': '',
+        'Position': '',
+        'RookieYear': '',
+        'GameSegment': '',
+        'Period': '0',
+        'LastNGames': '0',
+        'ClutchTime': '',
+        'AheadBehind': '',
+        'PointDiff': '',
+        'RangeType': '',
+        'StartPeriod': '',
+        'EndPeriod': '',
+        'StartRange': '',
+        'EndRange': '',
+        'ContextFilter': '',
+        'ContextMeasure': 'FGA'
+    }
     
-    # Plot shots
-    made_shots = df[df['shot_made_flag'] == 1]
-    missed_shots = df[df['shot_made_flag'] == 0]
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        
+        if data['resultSets'] and len(data['resultSets']) > 0:
+            headers_list = data['resultSets'][0]['headers']
+            shots = data['resultSets'][0]['rowSet']
+            
+            if shots:
+                df = pd.DataFrame(shots, columns=headers_list)
+                return df
+            else:
+                return pd.DataFrame()
+        else:
+            return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error fetching shot data: {str(e)}")
+        return pd.DataFrame()
+
+def draw_court(ax):
+    """Draw basketball court on matplotlib axis"""
+    # Court dimensions (in feet, converted to NBA API coordinates)
+    # NBA court is 94 feet long, 50 feet wide
+    # API coordinates: center at (0,0), range roughly -250 to +250 for x, -50 to +420 for y
     
-    ax.scatter(made_shots['locX'], made_shots['locY'], c='green', s=20, alpha=0.7, label='Made')
-    ax.scatter(missed_shots['locX'], missed_shots['locY'], c='red', s=20, alpha=0.7, label='Missed')
+    # Clear the axis
+    ax.clear()
     
-    # Set the limits of the court
+    # Set court boundaries
     ax.set_xlim(-250, 250)
-    ax.set_ylim(-47.5, 422.5)
+    ax.set_ylim(-50, 420)
+    
+    # Draw court outline
+    court_outline = patches.Rectangle((-250, -50), 500, 470, 
+                                    linewidth=2, edgecolor='black', facecolor='none')
+    ax.add_patch(court_outline)
+    
+    # Draw center court circle
+    center_circle = patches.Circle((0, 420), 60, linewidth=2, 
+                                 edgecolor='black', facecolor='none')
+    ax.add_patch(center_circle)
+    
+    # Draw three-point arc (23.75 feet = ~237.5 units in API coordinates)
+    three_point_arc = Arc((0, 0), 474, 474, theta1=0, theta2=180, 
+                         linewidth=2, edgecolor='black', facecolor='none')
+    ax.add_patch(three_point_arc)
+    
+    # Draw three-point line sides
+    ax.plot([-220, -220], [0, 140], 'k-', linewidth=2)
+    ax.plot([220, 220], [0, 140], 'k-', linewidth=2)
+    
+    # Draw free throw circle
+    free_throw_circle = patches.Circle((0, 140), 60, linewidth=2, 
+                                     edgecolor='black', facecolor='none')
+    ax.add_patch(free_throw_circle)
+    
+    # Draw lane
+    lane = patches.Rectangle((-80, 0), 160, 140, linewidth=2, 
+                           edgecolor='black', facecolor='none')
+    ax.add_patch(lane)
+    
+    # Draw basket
+    basket = patches.Circle((0, 0), 7.5, linewidth=2, 
+                          edgecolor='black', facecolor='none')
+    ax.add_patch(basket)
     
     # Remove axis ticks and labels
     ax.set_xticks([])
     ax.set_yticks([])
-    
-    # Add title and legend
-    ax.set_title(title, fontsize=14)
-    ax.legend(loc='upper right')
-    
-    # Calculate statistics
-    total_shots = len(df)
-    fg_pct = made_shots.shape[0] / total_shots * 100 if total_shots > 0 else 0
-    three_pt_attempts = df[df['shot_type'] == '3PT Field Goal'].shape[0]
-    three_pt_made = df[(df['shot_type'] == '3PT Field Goal') & (df['shot_made_flag'] == 1)].shape[0]
-    three_pt_pct = three_pt_made / three_pt_attempts * 100 if three_pt_attempts > 0 else 0
-    avg_distance = df['shot_distance'].mean()
-    
-    # Add statistics text box
-    stats_text = (
-        f"Total Attempts: {total_shots}\n"
-        f"FG%: {fg_pct:.1f}%\n"
-        f"3P%: {three_pt_pct:.1f}%\n"
-        f"Avg Distance: {avg_distance:.1f} ft"
-    )
-    ax.text(0, -100, stats_text, ha='center', va='center', bbox=dict(facecolor='white', alpha=0.7))
+    ax.set_aspect('equal')
 
-# Function to plot heatmap
-def plot_heatmap(df, ax, title):
-    if df is None or df.empty:
-        ax.text(0, 0, "No data available", ha='center', va='center', fontsize=12)
+def plot_shots_scatter(df, ax, player_name):
+    """Plot shots as scatter plot"""
+    if df.empty:
+        ax.text(0, 200, f"No shot data available for {player_name}", 
+                ha='center', va='center', fontsize=12)
         return
     
-    # Draw the court
-    draw_court(ax, color='black', lw=1)
+    # Filter shots with valid coordinates
+    valid_shots = df[(df['LOC_X'].notna()) & (df['LOC_Y'].notna())]
+    
+    if valid_shots.empty:
+        ax.text(0, 200, f"No valid shot coordinates for {player_name}", 
+                ha='center', va='center', fontsize=12)
+        return
+    
+    # Plot made shots in green
+    made_shots = valid_shots[valid_shots['SHOT_MADE_FLAG'] == 1]
+    if not made_shots.empty:
+        ax.scatter(made_shots['LOC_X'], made_shots['LOC_Y'], 
+                  c='green', s=20, alpha=0.6, label='Made')
+    
+    # Plot missed shots in red
+    missed_shots = valid_shots[valid_shots['SHOT_MADE_FLAG'] == 0]
+    if not missed_shots.empty:
+        ax.scatter(missed_shots['LOC_X'], missed_shots['LOC_Y'], 
+                  c='red', s=20, alpha=0.6, label='Missed')
+    
+    ax.set_title(f"{player_name} - Shot Chart", fontsize=14)
+    ax.legend()
+
+def plot_shots_heatmap(df, ax, player_name):
+    """Plot shots as hexbin heatmap"""
+    if df.empty:
+        ax.text(0, 200, f"No shot data available for {player_name}", 
+                ha='center', va='center', fontsize=12)
+        return
+    
+    # Filter shots with valid coordinates
+    valid_shots = df[(df['LOC_X'].notna()) & (df['LOC_Y'].notna())]
+    
+    if valid_shots.empty:
+        ax.text(0, 200, f"No valid shot coordinates for {player_name}", 
+                ha='center', va='center', fontsize=12)
+        return
     
     # Create hexbin plot
-    hb = ax.hexbin(df['locX'], df['locY'], gridsize=25, cmap='plasma', bins='log')
+    hb = ax.hexbin(valid_shots['LOC_X'], valid_shots['LOC_Y'], 
+                   gridsize=25, bins='log', mincnt=1, cmap='YlOrRd')
     
-    # Set the limits of the court
-    ax.set_xlim(-250, 250)
-    ax.set_ylim(-47.5, 422.5)
-    
-    # Remove axis ticks and labels
-    ax.set_xticks([])
-    ax.set_yticks([])
-    
-    # Add title
-    ax.set_title(title, fontsize=14)
+    ax.set_title(f"{player_name} - Shot Density", fontsize=14)
     
     # Add colorbar
-    plt.colorbar(hb, ax=ax, label='Shot Frequency (log scale)')
+    plt.colorbar(hb, ax=ax, label='Log(Shot Attempts)')
+
+def calculate_stats(df):
+    """Calculate shooting statistics"""
+    if df.empty:
+        return {
+            'total_shots': 0,
+            'made_shots': 0,
+            'fg_percentage': 0,
+            'three_point_attempts': 0,
+            'three_point_made': 0,
+            'three_point_percentage': 0
+        }
     
-    # Calculate statistics
     total_shots = len(df)
-    made_shots = df[df['shot_made_flag'] == 1]
-    fg_pct = made_shots.shape[0] / total_shots * 100 if total_shots > 0 else 0
-    three_pt_attempts = df[df['shot_type'] == '3PT Field Goal'].shape[0]
-    three_pt_made = df[(df['shot_type'] == '3PT Field Goal') & (df['shot_made_flag'] == 1)].shape[0]
-    three_pt_pct = three_pt_made / three_pt_attempts * 100 if three_pt_attempts > 0 else 0
-    avg_distance = df['shot_distance'].mean()
+    made_shots = len(df[df['SHOT_MADE_FLAG'] == 1])
+    fg_percentage = (made_shots / total_shots * 100) if total_shots > 0 else 0
     
-    # Add statistics text box
-    stats_text = (
-        f"Total Attempts: {total_shots}\n"
-        f"FG%: {fg_pct:.1f}%\n"
-        f"3P%: {three_pt_pct:.1f}%\n"
-        f"Avg Distance: {avg_distance:.1f} ft"
+    # Three-point shots (assuming SHOT_TYPE contains '3PT')
+    three_point_shots = df[df['SHOT_TYPE'].str.contains('3PT', na=False)]
+    three_point_attempts = len(three_point_shots)
+    three_point_made = len(three_point_shots[three_point_shots['SHOT_MADE_FLAG'] == 1])
+    three_point_percentage = (three_point_made / three_point_attempts * 100) if three_point_attempts > 0 else 0
+    
+    return {
+        'total_shots': total_shots,
+        'made_shots': made_shots,
+        'fg_percentage': fg_percentage,
+        'three_point_attempts': three_point_attempts,
+        'three_point_made': three_point_made,
+        'three_point_percentage': three_point_percentage
+    }
+
+# Main App
+st.title("🏀 NBA Shot Visualizer")
+
+# Input controls
+col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+
+with col1:
+    season = st.selectbox(
+        "NBA Season",
+        ["2024-25", "2023-24", "2022-23", "2021-22", "2020-21"],
+        index=0
     )
-    ax.text(0, -100, stats_text, ha='center', va='center', bbox=dict(facecolor='white', alpha=0.7))
 
-# Streamlit UI
-st.sidebar.header("Select Parameters")
+with col2:
+    player1_name = st.text_input("Player 1 Name", value="LeBron James")
 
-# Season selection
-seasons = [str(year) + "-" + str(year + 1)[-2:] for year in range(2010, 2024)]
-season = st.sidebar.selectbox("Select Season", seasons, index=len(seasons)-1)
+with col3:
+    player2_name = st.text_input("Player 2 Name", value="Stephen Curry")
 
-# Player inputs
-player1 = st.sidebar.text_input("Player 1", "LeBron James")
-player2 = st.sidebar.text_input("Player 2", "Stephen Curry")
+with col4:
+    compare_button = st.button("Compare", type="primary")
 
-# Compare button
-if st.sidebar.button("Compare"):
-    with st.spinner("Fetching shot data..."):
-        # Fetch data for both players
-        df1 = fetch_player_shots(player1, season)
-        df2 = fetch_player_shots(player2, season)
-        
-        # Create tabs for different visualizations
-        tab1, tab2 = st.tabs(["Scatter", "Heatmap"])
-        
-        with tab1:
-            st.header("Shot Scatter Plots")
+# Process comparison when button is clicked
+if compare_button:
+    if not player1_name or not player2_name:
+        st.error("Please enter both player names.")
+    else:
+        with st.spinner("Fetching player data..."):
+            # Get player IDs
+            player1_id = get_player_id(player1_name)
+            player2_id = get_player_id(player2_name)
             
-            # Create a figure with two subplots side by side
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
-            
-            # Plot scatter for each player
-            plot_scatter(df1, ax1, f"{player1} - {season}")
-            plot_scatter(df2, ax2, f"{player2} - {season}")
-            
-            # Adjust layout and display
-            plt.tight_layout()
-            st.pyplot(fig)
-        
-        with tab2:
-            st.header("Shot Heatmaps")
-            
-            # Create a figure with two subplots side by side
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
-            
-            # Plot heatmap for each player
-            plot_heatmap(df1, ax1, f"{player1} - {season}")
-            plot_heatmap(df2, ax2, f"{player2} - {season}")
-            
-            # Adjust layout and display
-            plt.tight_layout()
-            st.pyplot(fig)
+            if not player1_id:
+                st.error(f"Could not find player: {player1_name}")
+            elif not player2_id:
+                st.error(f"Could not find player: {player2_name}")
+            else:
+                # Fetch shot data
+                with st.spinner("Fetching shot data..."):
+                    player1_shots = get_shot_data(player1_id, season)
+                    player2_shots = get_shot_data(player2_id, season)
+                
+                # Create tabs for different visualizations
+                tab1, tab2 = st.tabs(["Scatter", "Heatmap"])
+                
+                with tab1:
+                    # Create scatter plot
+                    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+                    
+                    # Draw courts
+                    draw_court(ax1)
+                    draw_court(ax2)
+                    
+                    # Plot shots
+                    plot_shots_scatter(player1_shots, ax1, player1_name)
+                    plot_shots_scatter(player2_shots, ax2, player2_name)
+                    
+                    plt.tight_layout()
+                    st.pyplot(fig)
+                
+                with tab2:
+                    # Create heatmap
+                    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+                    
+                    # Draw courts
+                    draw_court(ax1)
+                    draw_court(ax2)
+                    
+                    # Plot heatmaps
+                    plot_shots_heatmap(player1_shots, ax1, player1_name)
+                    plot_shots_heatmap(player2_shots, ax2, player2_name)
+                    
+                    plt.tight_layout()
+                    st.pyplot(fig)
+                
+                # Display statistics
+                st.subheader("📊 Shooting Statistics")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write(f"**{player1_name}**")
+                    stats1 = calculate_stats(player1_shots)
+                    st.write(f"Total Shots: {stats1['total_shots']}")
+                    st.write(f"Made Shots: {stats1['made_shots']}")
+                    st.write(f"FG%: {stats1['fg_percentage']:.1f}%")
+                    st.write(f"3P Attempts: {stats1['three_point_attempts']}")
+                    st.write(f"3P Made: {stats1['three_point_made']}")
+                    st.write(f"3P%: {stats1['three_point_percentage']:.1f}%")
+                
+                with col2:
+                    st.write(f"**{player2_name}**")
+                    stats2 = calculate_stats(player2_shots)
+                    st.write(f"Total Shots: {stats2['total_shots']}")
+                    st.write(f"Made Shots: {stats2['made_shots']}")
+                    st.write(f"FG%: {stats2['fg_percentage']:.1f}%")
+                    st.write(f"3P Attempts: {stats2['three_point_attempts']}")
+                    st.write(f"3P Made: {stats2['three_point_made']}")
+                    st.write(f"3P%: {stats2['three_point_percentage']:.1f}%")
 
-# Initial instructions
-if not st.session_state.get('button_clicked', False):
-    st.info("Select a season and enter two player names, then click 'Compare' to visualize their shots.")
+# Instructions
+st.sidebar.markdown("## Instructions")
+st.sidebar.markdown("1. Select an NBA season from the dropdown")
+st.sidebar.markdown("2. Enter two player names to compare")
+st.sidebar.markdown("3. Click 'Compare' to fetch and visualize shot data")
+st.sidebar.markdown("4. Use the tabs to switch between scatter plot and heatmap views")
+
+st.sidebar.markdown("## About")
+st.sidebar.markdown("This app visualizes NBA player shooting patterns using real NBA API data. " \
+"The scatter plot shows individual shots (green for made, red for missed), while the heatmap shows shot density using logarithmic scaling.")
